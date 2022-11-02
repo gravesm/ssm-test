@@ -1,0 +1,7 @@
+plugin: aws_ec2
+regions:
+  - us-east-1
+# There seems to be a bug in the plugin when trying to filter, for example,
+# by tags. Using the instance id works consistently. Not sure what's going on. Was getting a regex error with dns name
+hostnames:
+  # - some-instance-id

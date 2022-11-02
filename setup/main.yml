@@ -1,0 +1,78 @@
+- hosts: localhost
+  gather_facts: false
+  module_defaults:
+    group/aws:
+      region: us-east-1
+  tasks:
+    - amazon.aws.ec2_vpc_net:
+        name: mgraves-ssm-test
+        cidr_block: 10.20.0.0/16
+      register: vpc
+
+    - amazon.aws.ec2_vpc_igw:
+        vpc_id: "{{ vpc.vpc.id }}"
+      register: igw
+
+    - amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc.id }}"
+        cidr: 10.20.1.0/24
+        tags:
+          Name: mgraves-ssm
+      register: subnet_a
+
+    - amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        subnets:
+          - "{{ subnet_a.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id }}"
+        tags:
+          Name: mgraves-ssm
+
+    - name: Create S3 bucket
+      amazon.aws.s3_bucket:
+        name: mgraves-ssm-test
+      register: s3_bucket
+
+    - name: Create instance profile
+      community.aws.iam_role:
+        name: mgraves-ssm-test
+        assume_role_policy_document: "{{ lookup('file', 'policy.json') }}"
+        create_instance_profile: true
+        managed_policies:
+          - AmazonSSMManagedInstanceCore
+        wait: true
+      register: instance_role
+
+    - name: Create test instance
+      amazon.aws.ec2_instance:
+        name: mgraves-ssm-test
+        instance_type: t3.micro
+        image_id: ami-09d3b3274b6c5d4aa
+        exact_count: 1
+        vpc_subnet_id: "{{ subnet_a.subnet.id }}"
+        instance_role: "{{ instance_role.iam_role.role_name }}"
+        network:
+          assign_public_ip: true
+        tags:
+          Manager: SSM
+
+    - name: Create role for playbook execution
+      community.aws.iam_role:
+        name: mgraves-ssm-user
+        assume_role_policy_document: "{{ lookup('template', 'ssm-user-policy.j2') }}"
+        create_instance_profile: false
+        managed_policies:
+          - AmazonSSMFullAccess
+        # - AmazonS3FullAccess <-- this is the only way I've been able to get it to work
+      register: execution_role
+
+    - name: Attach inline S3 bucket permissions to execution role
+      # Put/DeleteObject are not enough for S3 bucket access, but unclear what else is required here.
+      # AmazonS3FullAccess managed policy works.
+      community.aws.iam_policy:
+        policy_name: mgraves-ssm-execution-policy
+        iam_name: "{{ execution_role.iam_role.role_name }}"
+        iam_type: role
+        policy_json: "{{ lookup('template', 'execution-policy.j2', template_vars=dict(bucket_name=s3_bucket.name)) }}"

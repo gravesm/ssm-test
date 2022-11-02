@@ -1,0 +1,15 @@
+---
+ansible-navigator:
+  execution-environment:
+    enabled: true
+    environment-variables:
+      pass:
+        - AWS_ACCESS_KEY_ID
+        - AWS_SECRET_ACCESS_KEY
+        - AWS_SESSION_TOKEN
+    container-engine: docker
+    pull:
+      policy: never
+  playbook-artifact:
+    enable: false
+  mode: stdout
